@@ -1,17 +1,81 @@
+<div align="center">
+
 # dsh-agent-desktop
 
-[![CI](https://github.com/jyuaner/dsh-agent-desktop/actions/workflows/ci.yml/badge.svg)](https://github.com/jyuaner/dsh-agent-desktop/actions/workflows/ci.yml)
-[![license: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![dsh bundle](https://img.shields.io/badge/dsh-plugin%20bundle-0.1.1-6f42c1)](https://github.com/jyuaner/dsh-agent-desktop)
+[![GitHub stars](https://img.shields.io/github/stars/jyuaner/dsh-agent-desktop?style=flat-square&label=stars)](https://github.com/jyuaner/dsh-agent-desktop/stargazers)
+[![License](https://img.shields.io/badge/license-MIT-3DA639?style=flat-square)](LICENSE)
+[![DSH](https://img.shields.io/badge/dsh-bundle%200.1.1-4D6BFE?style=flat-square)](package.json)
+[![Node.js](https://img.shields.io/badge/Node.js-%E2%89%A522.19-339933?style=flat-square&logo=node.js&logoColor=white)](package.json)
+[![Tests](https://img.shields.io/badge/tests-10%20unit%20%2B%201%20handshake-brightgreen?style=flat-square)](test/unit.test.mjs)
+[![Tools](https://img.shields.io/badge/tools-75-8957E5?style=flat-square)](#what-it-registers)
 
-A **DeepSeek Harness (`dsh`) plugin bundle** that mounts [agent-desktop](https://github.com/vercel-labs/agent-desktop) — reliable computer use for AI agents, driven by native accessibility trees — as native harness tools.
+**Hands for a dsh agent: 75 desktop tools in one `dsh plugin add`.**
 
-Install it into a profile and the model gets all **75 tools** under the `mcp__desktop__*` namespace: `desktop_snapshot`, `desktop_click`, `desktop_type`, `desktop_screenshot`, `desktop_launch`, `desktop_list_windows`, `desktop_clipboard_get`, `desktop_wait`, `desktop_batch`, and the rest.
+Upstream [agent-desktop](https://github.com/vercel-labs/agent-desktop) already turns native
+accessibility trees into 75 MCP tools — snapshot, click, type, screenshot. What is missing is
+the dsh side: a static `dsh-mcp-client` patch has to hard-code the binary path, the bridge
+cannot spawn npm's Windows `.cmd` shim, and `dsh plugin add` only wires bundles. This package
+fills exactly that gap.
+
+75 tools · one `dsh plugin add` · engine auto-discovery · no forked MCP bridge
+
+Current **0.1.1** · any profile that ships `dsh-mcp-client` · Windows / macOS / Linux
+
+English · [中文](README.zh.md)
+
+</div>
+
+---
+
+## The short version
+
+```
+agent-desktop        lets an AI see and drive a desktop      ← upstream: Rust binary + MCP
+dsh-agent-desktop    turns it into 75 native dsh tools       ← this package
+                     install once, edit no YAML
+```
+
+The model gets one extra namespace, `mcp__desktop__*`, with the same standing as built-in tools:
+`desktop_snapshot` (returns the accessibility tree with `@ref`s) · `desktop_click` · `desktop_type`
+· `desktop_screenshot` · `desktop_launch` · `desktop_list_windows` · `desktop_clipboard_get` ·
+`desktop_wait` · `desktop_batch` … 75 in total.
+
+A real call: `snapshot` returns a 46-element tree → `click '@sXXXX:e25'` → `snapshot` again to verify.
+Delivery is semantic (accessibility actions) by default — no focus stealing, no synthetic mouse.
+
+---
+
+## The three things that were actually blocked
+
+The MCP server exists upstream, so "just use it" looks like one config entry. The three blockers all live outside that entry.
+
+### 1. `command` cannot be hard-coded
+
+The path moves with OS, arch, installer and prefix — and on Windows the npm global prefix is often non-ASCII (`D:\软件\...` on the machine this was built on), which a YAML patch has no good way to express.
+
+| Install | Launcher |
+| --- | --- |
+| npm global (Windows) | `%APPDATA%\npm\node_modules\agent-desktop\bin\agent-desktop` |
+| npm global (this machine) | `D:\软件\ClaudeCode\node_modules\agent-desktop\bin\agent-desktop` |
+| pnpm global | `$PNPM_HOME/...` or `%LOCALAPPDATA%\pnpm\...` |
+| project-local | `<repo>/node_modules/agent-desktop/bin/...` |
+
+### 2. The bridge cannot spawn npm's Windows shim
+
+Even a bare `agent-desktop` fails: the MCP bridge calls `CreateProcess`/`execve` **without a shell**, so `agent-desktop.cmd` never runs. And the generated `agent-desktop.ps1` has no BOM, so PowerShell 5.1 reads the Chinese prefix as GBK and reports `CommandNotFoundException` (observed here).
+
+### 3. `dsh plugin add` requires a bundle patch layer
+
+`dsh plugin add` appends the package to `dsh.profile.bundles`; only a bundle carries `cordis.patch.yml`. Shipping an npm package alone is not "installable" — it needs `"dsh": { "bundle": { "patch": "./cordis.patch.yml" } }` plus an `insert` entry.
+
+Counter-intuitive extra: making `agent-desktop` a dependency is *worse*. It has a `postinstall`, pnpm 11 blocks unapproved build scripts and exits 1 with `ERR_PNPM_IGNORED_BUILDS`, so `dsh plugin add` stops halfway with the profile half-updated. This package therefore never hard-depends on it — it discovers it.
+
+---
 
 ## Install
 
 ```bash
-# 1. the desktop engine (one binary, no build tools needed)
+# 1. the desktop engine (one binary, no build tools)
 npm i -g agent-desktop
 
 # 2. the harness plugin — registered as a bundle, patch applied automatically
@@ -21,77 +85,22 @@ dsh plugin --profile web add github:jyuaner/dsh-agent-desktop
 dsh web
 ```
 
-Verify the wiring without booting anything:
+Verify without booting anything:
 
 ```bash
 npx dsh-agent-desktop doctor
-# {
-#   "ok": true,
+# { "ok": true,
 #   "launcher": "C:\\Users\\you\\AppData\\Roaming\\npm\\node_modules\\agent-desktop\\bin\\agent-desktop",
-#   "platform": "win32-x64",
-#   ...
-# }
+#   "platform": "win32-x64", ... }
 # --- agent-desktop status ---
 # {"version":"2.6","ok":true,"command":"status","data":{"permissions":{"accessibility":{"state":"granted"}}, …}}
 ```
 
-Then ask the model to call `mcp__desktop__desktop_status` — the tools register before the first turn.
+Then ask the model for `mcp__desktop__desktop_status`. No engine yet? `npx dsh-agent-desktop setup` installs it and re-probes.
 
-No `agent-desktop` yet? `npx dsh-agent-desktop setup` installs it and re-probes.
+---
 
-### Why `agent-desktop` is *not* an npm dependency of this plugin
-
-It deliberately stays a runtime dependency it *discovers*, not one it *installs*. `agent-desktop` has a `postinstall` that links its native binary; pnpm 11 blocks unapproved dependency build scripts and exits non-zero (`ERR_PNPM_IGNORED_BUILDS`). If this package listed `agent-desktop` as a dependency, `dsh plugin add` would fail halfway with the profile only partially updated. The engine is therefore installed once by you, and the adapter resolves it.
-
-## Configuration
-
-Defaults are enough. To change them, override the entry in your own profile patch (`$DSH_HOME/profiles/<profile>/cordis.patch.yml`):
-
-```yaml
-- id: agent-desktop
-  config:
-    serverName: desktop        # tools become mcp__<serverName>__*
-    toolCallTimeoutMs: 120000  # agent-desktop snapshot/action calls can be slow
-    command: /usr/local/bin/agent-desktop   # skip discovery entirely
-    extraArgs: ["--headed"]    # appended after `mcp`
-    env: {}                    # extra env for the launcher
-```
-
-| Field | Default | Meaning |
-|---|---|---|
-| `serverName` | `desktop` | MCP namespace (`mcp__desktop__*`); must match `[A-Za-z0-9_-]{1,32}` and be unique per profile |
-| `command` | discovered | Absolute path to an `agent-desktop` executable or its `bin/agent-desktop` launcher |
-| `extraArgs` | `[]` | Extra CLI arguments after `mcp` (e.g. `--headed` for physical input) |
-| `toolCallTimeoutMs` | `120000` | Per-call timeout for MCP tool calls |
-| `env` | `{}` | Extra environment for the launched engine, merged over the harness's scrubbed env |
-| `failOnStartupError` | `false` | Throw instead of warning when the engine is missing or the namespace is taken |
-
-Every field is validated in the adapter, so a typo fails with one sentence instead of a bridge stack trace.
-
-Discovery order: `config.command` → `AGENT_DESKTOP_BIN` / `AGENT_DESKTOP_LAUNCHER` → the package resolvable from this plugin → every global prefix npm/pnpm/Volta/Scoop/asdf/Homebrew/`PATH` implies (`%APPDATA%\npm`, `%LOCALAPPDATA%\pnpm`, `/usr/local`, `/opt/homebrew`, `~/.local`, `<prefix>/node_modules`, `<prefix>/lib/node_modules`, …).
-
-If nothing is found, the plugin logs an actionable hint and **skips registration** so the harness still boots — a missing desktop engine should never take the whole session down.
-
-## Troubleshooting
-
-| Symptom | Cause | Fix |
-|---|---|---|
-| Harness boots, no `mcp__desktop__*` tools | engine not found (the plugin warned at boot) | `npm i -g agent-desktop`, or set `AGENT_DESKTOP_BIN`, then reload |
-| `serverName "desktop" is already in use` | a hand-written `dsh-mcp-client` entry uses the same namespace | delete that entry, or set `config.serverName` on one of them |
-| `ERR_PNPM_IGNORED_BUILDS` during install | you added `agent-desktop` as a dependency yourself | drop the hard dependency; the adapter only needs the engine installed |
-| Tools appear, calls fail with `desktop_status` unavailable | engine binary is for another platform/arch | `npx dsh-agent-desktop doctor` shows the resolved path and its `status` output |
-| `desktop_screenshot` returns nothing on macOS | missing Screen Recording grant | System Settings → Privacy & Security → Screen Recording → your terminal/`dsh` |
-| Physical input ignored | default delivery is semantic, not synthetic | add `extraArgs: ["--headed"]` |
-
-## Update
-
-```bash
-dsh plugin --profile web add github:jyuaner/dsh-agent-desktop#v0.1.1
-```
-
-Pinning a tag makes updates explicit; plain `github:jyuaner/dsh-agent-desktop` follows `main`. Restart the profile afterwards. See [CHANGELOG.md](CHANGELOG.md).
-
-## How it works
+## What it registers
 
 ```
 profiles/<name>/package.json   dsh.profile.bundles += dsh-agent-desktop
@@ -99,7 +108,7 @@ profiles/<name>/package.json   dsh.profile.bundles += dsh-agent-desktop
         └─ cordis.patch.yml    - insert: [{ id: agent-desktop, name: dsh-agent-desktop }]
                  │
                  └─ lib/index.js
-                      normalizeConfig()   → validated serverName/timeout/args/env
+                      normalizeConfig()   → validated serverName / timeout / args / env
                       resolveLauncher()   → …/node_modules/agent-desktop/bin/agent-desktop
                       buildMcpConfig()    → { transport: stdio, command: process.execPath,
                                              args: [launcher, "mcp"], … }
@@ -107,24 +116,62 @@ profiles/<name>/package.json   dsh.profile.bundles += dsh-agent-desktop
                                             └─ tools/call → mcp__desktop__*
 ```
 
-Three details this adapter exists for:
+- **Discovery**: `config.command` → `AGENT_DESKTOP_BIN` / `AGENT_DESKTOP_LAUNCHER` → this package's dependency → every prefix npm/pnpm/Volta/Scoop/asdf/Homebrew/`PATH` implies.
+- **Always a real executable**: `process.execPath` + `bin/agent-desktop`, so the Windows `.cmd` shim and non-ASCII prefixes never matter, and agent-desktop's macOS helper wiring stays intact.
+- **No forked bridge**: the connection is handed to the harness-provided `@deepseek-ai/dsh-mcp-client`.
+- **A missing engine never kills the session**: the plugin logs an actionable hint and skips registration; set `failOnStartupError: true` to fail hard instead.
+- **Stateless**: exports `name`, `inject: ['tools']`, `apply(ctx, config)`; unloading disposes the connection through the bridge lifecycle.
 
-| Problem | What this plugin does |
-|---|---|
-| A static patch must hard-code `command`, but the launcher path differs per OS, arch, installer and prefix — and on Windows often contains non-ASCII characters | Resolves the launcher at load time from its own package, then global prefixes; `AGENT_DESKTOP_BIN` overrides everything |
-| The MCP bridge spawns `command` with `CreateProcess`/`execve`, which cannot execute npm's Windows `.cmd` shim, and a bare `agent-desktop` only resolves through a shell | Spawns `process.execPath` + `bin/agent-desktop` — always a real executable, on every platform, and agent-desktop's macOS helper wiring stays intact |
-| Installing a plugin appends it to `dsh.profile.bundles`, so it needs its own patch layer | Ships `cordis.patch.yml` and delegates to the harness-provided `@deepseek-ai/dsh-mcp-client` — one MCP bridge, not a fork of it |
+## Configuration
 
-The adapter exports `name`, `inject: ['tools']`, `apply(ctx, config)` and holds no state of its own, so unloading the plugin disposes the MCP connection through the bridge's normal lifecycle.
+```yaml
+- id: agent-desktop
+  config:
+    serverName: desktop        # tools become mcp__<serverName>__*
+    toolCallTimeoutMs: 120000
+    command: /usr/local/bin/agent-desktop   # skip discovery
+    extraArgs: ["--headed"]    # appended after `mcp`
+    env: {}                    # extra env for the engine
+```
+
+| Field | Default | Meaning |
+|---|---|---|
+| `serverName` | `desktop` | MCP namespace (`mcp__desktop__*`); must match `[A-Za-z0-9_-]{1,32}` and be unique per profile |
+| `command` | discovered | Absolute path to an `agent-desktop` executable or its `bin/agent-desktop` launcher |
+| `extraArgs` | `[]` | Extra CLI arguments after `mcp` (`--headed` for physical input) |
+| `toolCallTimeoutMs` | `120000` | Per-call timeout for MCP tool calls |
+| `env` | `{}` | Extra environment for the launched engine, merged over the harness's scrubbed env |
+| `failOnStartupError` | `false` | Throw instead of warning when the engine is missing or the namespace is taken |
+
+Every field is validated in the adapter, so a typo costs one sentence instead of a bridge stack trace.
+
+## Troubleshooting
+
+| Symptom | Cause | Fix |
+|---|---|---|
+| Boots, but no `mcp__desktop__*` tools | engine not found (the plugin warned) | `npm i -g agent-desktop`, or set `AGENT_DESKTOP_BIN`, then reload |
+| `serverName "desktop" is already in use` | a hand-written `dsh-mcp-client` entry uses the namespace | delete it, or set `config.serverName` on one |
+| `ERR_PNPM_IGNORED_BUILDS` on install | you added `agent-desktop` as a dependency yourself | drop the hard dependency; the adapter only needs the engine installed |
+| `desktop_status` unavailable at call time | engine binary mismatched with platform/arch | `npx dsh-agent-desktop doctor` prints the resolved path and its `status` |
+| No images from `desktop_screenshot` on macOS | Screen Recording grant missing | System Settings → Privacy & Security → Screen Recording |
+| Physical input ignored | semantic delivery is the default | add `extraArgs: ["--headed"]` |
+
+## Update
+
+```bash
+dsh plugin --profile web add github:jyuaner/dsh-agent-desktop#v0.1.1
+```
+
+Pin a tag for explicit updates; the bare spec follows `main`. Restart the profile afterwards — see [CHANGELOG.md](CHANGELOG.md).
 
 ## Tests
 
 ```bash
-node --test test/unit.test.mjs   # defaults, validation, spawn shape, discovery precedence
+node --test test/unit.test.mjs   # defaults, validation, spawn shape, discovery (10 cases)
 node test/smoke.mjs              # real MCP initialize → tools/list, no harness needed
 ```
 
-The smoke test spawns exactly the config `buildMcpConfig()` produces:
+The smoke test spawns exactly what `buildMcpConfig()` produces:
 
 ```
 { "protocolVersion": "2025-06-18",
@@ -133,7 +180,7 @@ The smoke test spawns exactly the config `buildMcpConfig()` produces:
 OK
 ```
 
-GitHub Actions runs the unit suite on Windows, macOS and Linux, then attempts the handshake on each.
+GitHub Actions runs the unit suite on Windows, macOS and Linux and attempts the real handshake on each (Linux under `xvfb-run`).
 
 ## Uninstall
 
@@ -141,7 +188,7 @@ GitHub Actions runs the unit suite on Windows, macOS and Linux, then attempts th
 dsh plugin --profile web remove dsh-agent-desktop
 ```
 
-Remove any `id: agent-desktop` override from your patch. The `dsh.profile.bundles` entry goes away with the package. The engine itself is untouched: `npm rm -g agent-desktop`.
+Remove any `id: agent-desktop` override. The engine is untouched: `npm rm -g agent-desktop`.
 
 ## License
 

@@ -1,12 +1,76 @@
+<div align="center">
+
 # dsh-agent-desktop
 
-[![CI](https://github.com/jyuaner/dsh-agent-desktop/actions/workflows/ci.yml/badge.svg)](https://github.com/jyuaner/dsh-agent-desktop/actions/workflows/ci.yml)
-[![license: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![dsh bundle](https://img.shields.io/badge/dsh-plugin%20bundle-0.1.1-6f42c1)](https://github.com/jyuaner/dsh-agent-desktop)
+[![GitHub stars](https://img.shields.io/github/stars/jyuaner/dsh-agent-desktop?style=flat-square&label=stars)](https://github.com/jyuaner/dsh-agent-desktop/stargazers)
+[![License](https://img.shields.io/badge/license-MIT-3DA639?style=flat-square)](LICENSE)
+[![DSH](https://img.shields.io/badge/dsh-bundle%200.1.1-4D6BFE?style=flat-square)](package.json)
+[![Node.js](https://img.shields.io/badge/Node.js-%E2%89%A522.19-339933?style=flat-square&logo=node.js&logoColor=white)](package.json)
+[![Tests](https://img.shields.io/badge/tests-10%20unit%20%2B%201%20handshake-brightgreen?style=flat-square)](test/unit.test.mjs)
+[![Tools](https://img.shields.io/badge/tools-75-8957E5?style=flat-square)](#装完是什么样)
 
-把 [agent-desktop](https://github.com/vercel-labs/agent-desktop)（基于原生无障碍树的桌面 computer-use 引擎）挂成 **DeepSeek Harness（dsh）插件包**。
+**给 dsh 里的模型一双手：75 个桌面操作工具，一条命令装上。**
 
-装进 profile 之后，模型直接拿到 `mcp__desktop__*` 命名空间下的全部 **75 个工具**：`desktop_snapshot`、`desktop_click`、`desktop_type`、`desktop_screenshot`、`desktop_launch`、`desktop_list_windows`、`desktop_clipboard_get`、`desktop_wait`、`desktop_batch`……
+上游 [agent-desktop](https://github.com/vercel-labs/agent-desktop) 早就用原生无障碍树把「看窗口、点按钮、打字、截图」做成了 75 个 MCP 工具。
+但 dsh 这边只有通用的 `@deepseek-ai/dsh-mcp-client`：静态 patch 要写死二进制路径，
+MCP 桥又拉不起 Windows 的 `.cmd` 垫片，装上先吃一堆 `ENOENT`。
+这个包补的就是这一层。
+
+75 个工具 · 一条 `dsh plugin add` · 引擎自动发现 · 不 fork 现有 MCP 桥
+
+当前版本 **0.1.1** · 适配任意带 `dsh-mcp-client` 的 profile · Windows / macOS / Linux
+
+[English](README.md) · 中文
+
+</div>
+
+---
+
+## 一句话说清
+
+```
+agent-desktop        让 AI 看见并操作桌面              ← 上游，Rust 单二进制 + MCP
+dsh-agent-desktop    把它变成 dsh 的 75 个原生工具      ← 就是这个
+                     装完即用，不改一行 YAML
+```
+
+装完模型手里多出 `mcp__desktop__*` 一组工具，和 dsh 自带工具同权：
+
+`desktop_snapshot`（读无障碍树、拿 `@ref`）· `desktop_click` · `desktop_type` · `desktop_screenshot` · `desktop_launch` · `desktop_list_windows` · `desktop_clipboard_get` · `desktop_wait` · `desktop_batch` …… 共 75 个。
+
+一次真实调用：`snapshot` 拿到 46 个元素的树 → `click '@sXXXX:e25'` → 再 `snapshot` 校验。
+默认走语义投递（无障碍动作），不抢焦点、不动鼠标。
+
+---
+
+## 之前卡在哪三处
+
+上游已经把 MCP 服务写好了，所以「直接用」理论上只差一条 `dsh-mcp-client` 配置。**差的三处都在配置之外。**
+
+### 一、`command` 没法写死
+
+MCP 客户端需要的是一行静态配置，可 `agent-desktop` 的入口路径随系统、架构、安装方式、前缀变化：
+
+| 场景 | 实际路径 |
+| --- | --- |
+| npm 全局（Windows） | `%APPDATA%\npm\node_modules\agent-desktop\bin\agent-desktop` |
+| npm 全局（本机实测） | `D:\软件\ClaudeCode\node_modules\agent-desktop\bin\agent-desktop` |
+| pnpm 全局 | `$PNPM_HOME/...` 或 `%LOCALAPPDATA%\pnpm\...` |
+| 项目内 | `<repo>/node_modules/agent-desktop/bin/...` |
+
+并且 Windows 上 npm 的全局前缀**经常带中文**——`D:\软件\...` 这种路径写进 YAML 就已经输了一半。
+
+### 二、MCP 桥拉不起 Windows 的垫片
+
+即使写成裸名 `agent-desktop`，桥用 `CreateProcess`/`execve` 直接起进程，**不经过 shell**，npm 生成的 `agent-desktop.cmd` 根本执行不到；`agent-desktop.ps1` 还会因为无 BOM 被 PowerShell 5.1 按 GBK 读成 `D:\杞欢\...`（本机实测报 `CommandNotFoundException`）。
+
+### 三、`dsh plugin add` 要求插件自带 patch 层
+
+`dsh plugin add` 会把包名追加进 `dsh.profile.bundles`，只有 bundle 才带 `cordis.patch.yml`。**光发一个 npm 包不算「能装」**，还得有 `"dsh": { "bundle": { "patch": "./cordis.patch.yml" } }` 和一层 `insert` 条目。
+
+顺带一个反直觉的点：把 `agent-desktop` 写成 dependency 反而更糟——它带 `postinstall`，pnpm 11 默认拦截未批准的构建脚本并 `ERR_PNPM_IGNORED_BUILDS` 退出 1，于是 `dsh plugin add` 半途失败、profile 只更新一半（依赖写进去了，bundles 没写）。**实测踩过，所以本包不做硬依赖**，改成运行期发现。
+
+---
 
 ## 安装
 
@@ -39,9 +103,29 @@ npx dsh-agent-desktop doctor
 
 还没装引擎？`npx dsh-agent-desktop setup` 会装好并重新探测。
 
-### 为什么 `agent-desktop` 不做成本插件的 npm 依赖
+---
 
-它刻意保持「运行期发现」，而不是「安装期拉取」。`agent-desktop` 带一个 `postinstall` 用于链接原生二进制，而 pnpm 11 默认拦截未批准的依赖构建脚本并以非零码退出（`ERR_PNPM_IGNORED_BUILDS`）。如果本包把 `agent-desktop` 写成 dependency，`dsh plugin add` 会半途失败、profile 只更新一半。所以引擎由你装一次，适配器负责找到它。
+## 它做什么
+
+```
+profiles/<name>/package.json   dsh.profile.bundles += dsh-agent-desktop
+        │
+        └─ cordis.patch.yml    - insert: [{ id: agent-desktop, name: dsh-agent-desktop }]
+                 │
+                 └─ lib/index.js
+                      normalizeConfig()   → 校验 serverName / 超时 / 参数 / env
+                      resolveLauncher()   → …/node_modules/agent-desktop/bin/agent-desktop
+                      buildMcpConfig()    → { transport: stdio, command: process.execPath,
+                                             args: [launcher, "mcp"], … }
+                      @deepseek-ai/dsh-mcp-client.apply(ctx, config)
+                                            └─ tools/call → mcp__desktop__*
+```
+
+- **引擎自动发现**：`config.command` → `AGENT_DESKTOP_BIN` / `AGENT_DESKTOP_LAUNCHER` → 本包依赖 → npm/pnpm/Volta/Scoop/asdf/Homebrew/`PATH` 隐含的各个全局前缀。
+- **永远起真可执行文件**：`process.execPath` + `bin/agent-desktop`，全平台绕开 `.cmd` 垫片，同时保留 agent-desktop 在 macOS 上的 helper 逻辑。
+- **不 fork 桥**：连接交给 harness 自带的 `@deepseek-ai/dsh-mcp-client`，只有一套 MCP 实现。
+- **缺引擎不拖死会话**：打印可复制的修复提示并跳过注册，harness 照常启动；要硬失败就设 `failOnStartupError: true`。
+- **自身无状态**：只导出 `name` / `inject: ['tools']` / `apply(ctx, config)`，卸载时连接由桥的生命周期释放。
 
 ## 配置
 
@@ -68,10 +152,6 @@ npx dsh-agent-desktop doctor
 
 所有字段都在适配器里校验，写错一个字段只会得到一句话的错误，而不是桥内部的堆栈。
 
-发现顺序：`config.command` → `AGENT_DESKTOP_BIN` / `AGENT_DESKTOP_LAUNCHER` → 从本插件可解析到的包 → npm/pnpm/Volta/Scoop/asdf/Homebrew/`PATH` 隐含的全局前缀（`%APPDATA%\npm`、`%LOCALAPPDATA%\pnpm`、`/usr/local`、`/opt/homebrew`、`~/.local`、`<prefix>/node_modules`、`<prefix>/lib/node_modules`…）。
-
-全都找不到时，插件打印可复制的修复提示并**跳过注册**，让 harness 照常启动——桌面引擎缺失不该把整个会话拖死。
-
 ## 故障排查
 
 | 现象 | 原因 | 处理 |
@@ -91,36 +171,10 @@ dsh plugin --profile web add github:jyuaner/dsh-agent-desktop#v0.1.1
 
 钉 tag 让更新显式可控；写 `github:jyuaner/dsh-agent-desktop` 则跟随 `main`。改完重启 profile 生效，变更见 [CHANGELOG.md](CHANGELOG.md)。
 
-## 工作原理
-
-```
-profiles/<name>/package.json   dsh.profile.bundles += dsh-agent-desktop
-        │
-        └─ cordis.patch.yml    - insert: [{ id: agent-desktop, name: dsh-agent-desktop }]
-                 │
-                 └─ lib/index.js
-                      normalizeConfig()   → 校验 serverName/超时/参数/env
-                      resolveLauncher()   → …/node_modules/agent-desktop/bin/agent-desktop
-                      buildMcpConfig()    → { transport: stdio, command: process.execPath,
-                                             args: [launcher, "mcp"], … }
-                      @deepseek-ai/dsh-mcp-client.apply(ctx, config)
-                                            └─ tools/call → mcp__desktop__*
-```
-
-这一层适配器专门处理的三个问题：
-
-| 问题 | 本插件的做法 |
-|---|---|
-| 静态 patch 必须写死 `command`，但 launcher 路径随系统、架构、安装方式、前缀变化，Windows 上还常带中文路径 | 加载时从自身包与全局前缀解析；`AGENT_DESKTOP_BIN` 可完全覆盖 |
-| MCP 桥用 `CreateProcess`/`execve` 直接拉起 `command`，执行不了 npm 在 Windows 生成的 `.cmd` 垫片；裸写 `agent-desktop` 只有走 shell 才能解析 | 统一用 `process.execPath` + `bin/agent-desktop` 启动——全平台都是真可执行文件，且保留 agent-desktop 在 macOS 上的 helper 逻辑 |
-| `dsh plugin add` 会把包名追加进 `dsh.profile.bundles`，插件必须自带 patch 层 | 自带 `cordis.patch.yml`，并把连接交给 harness 自带的 `@deepseek-ai/dsh-mcp-client`——只有一套 MCP 桥，不 fork 实现 |
-
-插件只导出 `name`、`inject: ['tools']`、`apply(ctx, config)`，自身不持状态；卸载时 MCP 连接由桥的正常生命周期释放。
-
 ## 测试
 
 ```bash
-node --test test/unit.test.mjs   # 默认值、校验、spawn 形状、发现优先级
+node --test test/unit.test.mjs   # 默认值、校验、spawn 形状、发现优先级（10 例）
 node test/smoke.mjs              # 真跑 MCP initialize → tools/list，不需要 harness
 ```
 
@@ -133,7 +187,7 @@ node test/smoke.mjs              # 真跑 MCP initialize → tools/list，不需
 OK
 ```
 
-GitHub Actions 在 Windows / macOS / Linux 跑单测，并在每个平台尝试真实握手。
+GitHub Actions 在 Windows / macOS / Linux 跑单测，并在三个平台尝试真实握手（Linux 走 `xvfb-run`）。
 
 ## 卸载
 
