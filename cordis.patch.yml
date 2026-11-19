@@ -1,0 +1,11 @@
+# dsh-agent-desktop — bundle patch layer.
+#
+# Installing this package into a profile (`dsh plugin --profile <name> add …`)
+# appends its name to `dsh.profile.bundles`, so this layer is composed after the
+# shipped bundles and inserts exactly one plugin entry: the adapter itself.
+# The adapter resolves agent-desktop at load time and registers an MCP client
+# through the harness-provided `@deepseek-ai/dsh-mcp-client`.
+- insert:
+    - id: agent-desktop
+      name: dsh-agent-desktop
+      config: {}

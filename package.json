@@ -1,0 +1,66 @@
+{
+  "name": "dsh-agent-desktop",
+  "version": "0.1.0",
+  "description": "DeepSeek Harness adapter for agent-desktop: installs as a dsh bundle and mounts agent-desktop's desktop computer-use MCP server as native mcp__desktop__* tools.",
+  "type": "module",
+  "main": "lib/index.js",
+  "types": "lib/index.d.ts",
+  "exports": {
+    ".": "./lib/index.js"
+  },
+  "bin": {
+    "dsh-agent-desktop": "bin/dsh-agent-desktop.mjs"
+  },
+  "files": [
+    "lib",
+    "bin",
+    "cordis.patch.yml",
+    "README.md",
+    "README.zh.md",
+    "LICENSE"
+  ],
+  "license": "MIT",
+  "author": "jyuaner",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/jyuaner/dsh-agent-desktop.git"
+  },
+  "homepage": "https://github.com/jyuaner/dsh-agent-desktop#readme",
+  "bugs": {
+    "url": "https://github.com/jyuaner/dsh-agent-desktop/issues"
+  },
+  "keywords": [
+    "dsh-plugin",
+    "dsh-bundle",
+    "deepseek-harness",
+    "dsh",
+    "agent-desktop",
+    "computer-use",
+    "desktop-automation",
+    "accessibility",
+    "mcp"
+  ],
+  "engines": {
+    "node": "^22.19.0 || >=24.0.0"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  },
+  "peerDependencies": {
+    "@deepseek-ai/dsh-mcp-client": "*",
+    "agent-desktop": ">=1.0.0"
+  },
+  "peerDependenciesMeta": {
+    "@deepseek-ai/dsh-mcp-client": {
+      "optional": true
+    },
+    "agent-desktop": {
+      "optional": true
+    }
+  },
+  "scripts": {
+    "test": "node test/smoke.mjs"
+  }
+}
