@@ -17,7 +17,7 @@
     "cordis.patch.yml",
     "CHANGELOG.md",
     "README.md",
-    "README.zh.md",
+    "README.en.md",
     "LICENSE"
   ],
   "license": "MIT",
