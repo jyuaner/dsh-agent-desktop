@@ -1,6 +1,6 @@
 {
   "name": "dsh-agent-desktop",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "DeepSeek Harness adapter for agent-desktop: installs as a dsh bundle and mounts agent-desktop's desktop computer-use MCP server as native mcp__desktop__* tools.",
   "type": "module",
   "main": "lib/index.js",
@@ -15,6 +15,7 @@
     "lib",
     "bin",
     "cordis.patch.yml",
+    "CHANGELOG.md",
     "README.md",
     "README.zh.md",
     "LICENSE"
@@ -61,6 +62,7 @@
     }
   },
   "scripts": {
-    "test": "node test/smoke.mjs"
+    "test": "node --test test/unit.test.mjs",
+    "test:smoke": "node test/smoke.mjs"
   }
 }
