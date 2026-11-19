@@ -34,9 +34,6 @@ jobs:
       fail-fast: false
       matrix:
         os: [windows-latest, macos-latest, ubuntu-latest]
-    # Hosted runners have no interactive desktop session; the MCP handshake only
-    # needs the binary to start, which is exactly what this step proves.
-    continue-on-error: true
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -44,5 +41,26 @@ jobs:
           node-version: 22
       - name: Install the desktop engine
         run: npm i -g agent-desktop --no-audit --no-fund
-      - name: initialize + tools/list
+
+      # Windows is the authoritative handshake: it has a real desktop session and
+      # is the platform where the `.cmd` shim trap lives.
+      - name: initialize + tools/list (Windows)
+        if: runner.os == 'Windows'
+        run: node test/smoke.mjs
+
+      # Hosted Linux runners are headless; Xvfb gives the engine an X server so the
+      # handshake can be attempted. Kept non-blocking: display availability varies.
+      - name: initialize + tools/list (Linux, under Xvfb)
+        if: runner.os == 'Linux'
+        continue-on-error: true
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq xvfb
+          xvfb-run -a node test/smoke.mjs
+
+      # Hosted macOS runners have no Accessibility grant, so the engine may refuse
+      # tools; the point of this step is only to prove the binary starts and speaks MCP.
+      - name: initialize + tools/list (macOS, no Accessibility grant)
+        if: runner.os == 'macOS'
+        continue-on-error: true
         run: node test/smoke.mjs
